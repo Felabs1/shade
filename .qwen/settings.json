@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Agent(general-purpose)",
+      "WebFetch(github.com)",
+      "WebFetch(strk20.starknet.io)",
+      "WebFetch(raw.githubusercontent.com)",
+      "WebFetch(strk20-by-example.org)",
+      "Bash(git clone *)",
+      "Bash(cp *)",
+      "Bash(yarn install)",
+      "Bash(cd *)",
+      "Bash(scarb *)",
+      "Bash(asdf *)",
+      "Bash(yarn *)",
+      "Bash(tail *)",
+      "Bash(node *)",
+      "Bash(sed *)",
+      "Bash(mkdir *)",
+      "Bash(echo *)",
+      "Bash(lsof *)",
+      "Bash(ps *)",
+      "Bash(test *)",
+      "Bash(npx *)",
+      "Bash(grep *)",
+      "Bash(ls *)",
+      "Bash(curl *)"
+    ]
+  },
+  "$version": 4
+}

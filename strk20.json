@@ -1,0 +1,11 @@
+{
+  "transactions": [
+    "0x51eda02aa5c566799a959d1024c9ed4181f13fd17419a1c8d3788b166c467f",
+    "0x480d6beaf01e96b8b3e47fd1981fa64a9ee56f3955a6e6f7668f0f3f9e614ea"
+  ],
+  "demo_video": "",
+  "contracts": {
+    "shade_auction": "0x7ff5ab918bba26a1876e4d030de5deab2f752b21ad3ba7fa9d9d84ccfe7adeb"
+  },
+  "demo_url": ""
+}
