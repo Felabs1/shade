@@ -24,7 +24,9 @@
       "Bash(npx *)",
       "Bash(grep *)",
       "Bash(ls *)",
-      "Bash(curl *)"
+      "Bash(curl *)",
+      "Bash(git status *)",
+      "Bash(git log *)"
     ]
   },
   "$version": 4
