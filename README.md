@@ -62,6 +62,13 @@ Shade integrates with the STRK20 privacy pool through the `privacy_invoke` anony
 | State | Zustand |
 | Deploy | Vercel |
 
+## Deployments (Starknet Mainnet)
+
+| Contract | Address / Hash | Explorer |
+|---|---|---|
+| **Shade Auction Contract** | `0x0499ec578062d3f9c084e90289c68fb1475558845e59cf470b80357fe2d0709b` | [Voyager](https://voyager.online/contract/0x0499ec578062d3f9c084e90289c68fb1475558845e59cf470b80357fe2d0709b) · [Starkscan](https://starkscan.co/contract/0x0499ec578062d3f9c084e90289c68fb1475558845e59cf470b80357fe2d0709b) |
+| **Shade Class Hash** | `0x06411b4f770447f5d699a97e0d34fcb2d52ab2c36af28f9c763ce302565e2ce0` | [Voyager](https://voyager.online/class/0x06411b4f770447f5d699a97e0d34fcb2d52ab2c36af28f9c763ce302565e2ce0) · [Starkscan](https://starkscan.co/class/0x06411b4f770447f5d699a97e0d34fcb2d52ab2c36af28f9c763ce302565e2ce0) |
+
 ## Repository Structure
 
 ```
@@ -99,7 +106,7 @@ shade/
 
 ```bash
 # Clone and install
-git clone <repo-url>
+git clone https://github.com/Felabs1/shade.git
 cd shade
 yarn install
 

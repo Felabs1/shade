@@ -6,6 +6,10 @@ import { ProviderInterface, RpcProvider } from "starknet";
 // moves privately (STRK on Starknet here).
 export const addrSTRK = "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d";
 
+// ─── Shade Auction Contract ────────────────────────────────────────────────
+export const ShadeMainnetAddress = "0x499ec578062d3f9c084e90289c68fb1475558845e59cf470b80357fe2d0709b";
+export const ShadeMainnetClassHash = "0x6411b4f770447f5d699a97e0d34fcb2d52ab2c36af28f9c763ce302565e2ce0";
+
 // Frontend RPC providers, indexed. The STRK20 privacy pool lives on Mainnet (0)
 // and Sepolia (2). NEXT_PUBLIC_PROVIDER_URL can be just the Alchemy key OR a
 // full RPC URL. Falls back to free public Blast endpoints if not set.

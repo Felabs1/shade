@@ -18,6 +18,16 @@ import {
   timeRemaining,
   getAuctionContract,
 } from "@/utils/auction";
+import {
+  getAuctionPhase,
+  timeUntil,
+  formatCountdown,
+  computeStrategy,
+  generateAgentMessages,
+  AgentMessage,
+  StrategyResult,
+  AuctionPhase,
+} from "@/utils/strategy";
 import { useStoreWallet } from "./Wallet/walletContext";
 import { useFrontendProvider } from "./client/provider/providerContext";
 
@@ -29,15 +39,17 @@ const Icons = {
   unlock: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 019.9-1"/></svg>,
   check: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6L9 17l-5-5"/></svg>,
   refresh: <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 105.64-12.36L1 10"/></svg>,
+  brain: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9.5 2a5.5 5.5 0 00-4.88 8.01A4.5 4.5 0 006 19h.5"/><path d="M14.5 2a5.5 5.5 0 014.88 8.01A4.5 4.5 0 0118 19h-.5"/><path d="M12 2v20"/></svg>,
 };
 
-type TabKey = "create" | "browse" | "bid" | "reveal" | "settle";
+type TabKey = "create" | "browse" | "bid" | "reveal" | "settle" | "strategist";
 const TABS: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "create", label: "Create", icon: Icons.plus },
   { key: "browse", label: "Browse", icon: Icons.grid },
   { key: "bid", label: "Bid", icon: Icons.lock },
   { key: "reveal", label: "Reveal", icon: Icons.unlock },
   { key: "settle", label: "Settle", icon: Icons.check },
+  { key: "strategist", label: "Strategist", icon: Icons.brain },
 ];
 
 // Local storage for bid secrets (amount + salt) so user can reveal later.
@@ -70,6 +82,298 @@ function saveSecret(secret: BidSecret) {
   ));
 }
 
+// ─── Strategist Tab (Agent UI) ────────────────────────────────────────────
+
+const PHASE_LABELS: Record<AuctionPhase, string> = {
+  bidding: "Bidding Open",
+  reveal: "Reveal Phase",
+  ready_to_settle: "Ready to Settle",
+  settled: "Settled",
+  cancelled: "Cancelled",
+};
+
+const PHASE_COLORS: Record<AuctionPhase, string> = {
+  bidding: "rgba(0, 255, 200, 0.06)",
+  reveal: "rgba(255, 171, 0, 0.06)",
+  ready_to_settle: "rgba(0, 230, 118, 0.06)",
+  settled: "rgba(0, 230, 118, 0.06)",
+  cancelled: "rgba(255, 61, 113, 0.06)",
+};
+
+function decodeItemName(raw: any): string {
+  try { return shortString.decodeShortString(raw.toString()); } catch { return "Unnamed"; }
+}
+
+// Countdown ring — SVG circle that depletes as time runs out.
+function CountdownRing({ total, remaining }: { total: number; remaining: number }) {
+  const pct = total > 0 ? Math.min(1, remaining / total) : 0;
+  const r = 18;
+  const circ = 2 * Math.PI * r;
+  const offset = circ * (1 - pct);
+  const color = pct > 0.5 ? "var(--green)" : pct > 0.15 ? "#e5a000" : "var(--danger)";
+  return (
+    <svg width="44" height="44" viewBox="0 0 44 44" style={{ flexShrink: 0 }}>
+      <circle cx="22" cy="22" r={r} fill="none" stroke="var(--line)" strokeWidth="3" />
+      <circle cx="22" cy="22" r={r} fill="none" stroke={color} strokeWidth="3"
+        strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
+        transform="rotate(-90 22 22)" style={{ transition: "stroke-dashoffset 1s linear, stroke 300ms" }} />
+      <text x="22" y="23" textAnchor="middle" dominantBaseline="central"
+        style={{ fontSize: 9, fontWeight: 700, fill: "var(--ink)", fontFamily: "var(--font-mono-ui), monospace" }}>
+        {remaining > 3600 ? `${Math.floor(remaining / 3600)}h` : remaining > 60 ? `${Math.floor(remaining / 60)}m` : `${remaining}s`}
+      </text>
+    </svg>
+  );
+}
+
+// Agent avatar bubble.
+function AgentBubble({ msg }: { msg: AgentMessage }) {
+  const bgMap: Record<string, string> = {
+    warning: msg.urgency === "critical" ? "rgba(255, 61, 113, 0.08)" : "rgba(255, 171, 0, 0.06)",
+    action: "rgba(0, 255, 200, 0.06)",
+    analysis: "rgba(168, 85, 247, 0.06)",
+    info: "var(--inset)",
+  };
+  const borderMap: Record<string, string> = {
+    warning: msg.urgency === "critical" ? "rgba(255, 61, 113, 0.3)" : "rgba(255, 171, 0, 0.25)",
+    action: "rgba(0, 255, 200, 0.2)",
+    analysis: "rgba(168, 85, 247, 0.2)",
+    info: "var(--line)",
+  };
+  return (
+    <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+      {/* Agent avatar */}
+      <div style={{
+        width: 28, height: 28, borderRadius: 8, flexShrink: 0,
+        background: msg.type === "warning" ? "rgba(255, 61, 113, 0.15)" : msg.type === "action" ? "rgba(0, 255, 200, 0.12)" : "rgba(168, 85, 247, 0.12)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 14,
+      }}>
+        {msg.type === "warning" ? "⚡" : msg.type === "action" ? "→" : msg.type === "analysis" ? "📊" : "💡"}
+      </div>
+      <div style={{
+        flex: 1, padding: "10px 14px", borderRadius: "4px 14px 14px 14px",
+        background: bgMap[msg.type] || "var(--inset)",
+        border: `1px solid ${borderMap[msg.type] || "var(--line)"}`,
+        fontSize: 13, lineHeight: 1.55,
+        color: msg.type === "warning" ? "#ff6b8a" : "var(--ink)",
+      }}>
+        {msg.text}
+      </div>
+    </div>
+  );
+}
+
+function StrategistTab({
+  provider, contractAddr, isStrk20Network, auctions, onRefresh,
+}: {
+  provider: RpcProvider; contractAddr: string; isStrk20Network: boolean;
+  auctions: AuctionData[]; onRefresh: () => void;
+}) {
+  const [selectedId, setSelectedId] = useState<number>(0);
+  const [trueValue, setTrueValue] = useState("");
+  const [strategy, setStrategy] = useState<StrategyResult | null>(null);
+  const [tick, setTick] = useState(0);
+  const [copied, setCopied] = useState(false);
+
+  // Auto-select first auction.
+  useEffect(() => {
+    if (auctions.length > 0 && selectedId === 0) setSelectedId(auctions[0].id);
+  }, [auctions, selectedId]);
+
+  // Tick every second for countdown.
+  useEffect(() => {
+    const iv = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // Compute strategy when value changes.
+  useEffect(() => {
+    const auction = auctions.find((a) => a.id === selectedId);
+    if (!auction || !trueValue) { setStrategy(null); return; }
+    try {
+      const val = parseAmount(trueValue);
+      if (val > 0n) setStrategy(computeStrategy(auction, val));
+      else setStrategy(null);
+    } catch { setStrategy(null); }
+  }, [trueValue, selectedId, auctions]);
+
+  const selected = auctions.find((a) => a.id === selectedId);
+  const phase = selected ? getAuctionPhase(selected) : null;
+
+  // Check saved bid.
+  const hasBid = (() => {
+    try {
+      const raw = localStorage.getItem("shade_secrets");
+      if (!raw || !selected) return false;
+      return JSON.parse(raw).some((s: any) => s.auctionId === selected.id);
+    } catch { return false; }
+  })();
+
+  const messages: AgentMessage[] = selected ? generateAgentMessages(selected, hasBid, false) : [];
+
+  const copyBid = () => {
+    if (!strategy) return;
+    navigator.clipboard.writeText(formatAmount(strategy.recommendedBid));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Countdown values.
+  const countdownTotal = selected
+    ? (phase === "bidding"
+      ? selected.biddingEnd - (selected.biddingEnd - (selected.revealEnd - selected.biddingEnd > 0 ? selected.biddingEnd : selected.revealEnd))
+      : selected.revealEnd - selected.biddingEnd)
+    : 0;
+  const countdownRemaining = selected
+    ? (phase === "bidding" ? timeUntil(selected.biddingEnd) : phase === "reveal" ? timeUntil(selected.revealEnd) : 0)
+    : 0;
+
+  if (!isStrk20Network) {
+    return <div className={styles.warn}>Switch to Mainnet or Sepolia to use the strategist.</div>;
+  }
+
+  if (auctions.length === 0) {
+    return (
+      <div className={styles.inputBlock}>
+        <div className={styles.inputLabel} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {Icons.brain} Strategist
+        </div>
+        <div style={{ textAlign: "center", padding: "30px 10px", color: "var(--muted)" }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>🧠</div>
+          <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, color: "var(--ink)" }}>Your AI Auction Advisor</p>
+          <p style={{ fontSize: 13, lineHeight: 1.5 }}>
+            I analyze active auctions using game theory and recommend optimal bids.
+            Create an auction first, then come back for strategy advice.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Auction selector */}
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, display: "block", marginBottom: 4 }}>
+          Select Auction to Analyze
+        </label>
+        <select
+          value={selectedId}
+          onChange={(e) => { setSelectedId(Number(e.target.value)); setTrueValue(""); setStrategy(null); }}
+          style={{ width: "100%", padding: "10px 14px", borderRadius: 12, border: "1px solid var(--line)", fontSize: 14 }}
+        >
+          {auctions.map((a) => (
+            <option key={a.id} value={a.id}>
+              #{a.id} — {decodeItemName(a.itemName)} ({PHASE_LABELS[getAuctionPhase(a)]})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selected && (
+        <>
+          {/* Phase status with countdown ring */}
+          <div style={{
+            padding: "12px 16px", borderRadius: 14, background: PHASE_COLORS[phase!],
+            marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+          }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 2 }}>{PHASE_LABELS[phase!]}</div>
+              <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                {decodeItemName(selected.itemName)} · {selected.auctionType === "vickrey" ? "Vickrey" : "First Price"} · {selected.bidCount} bid{selected.bidCount !== 1 ? "s" : ""}
+              </div>
+            </div>
+            {(phase === "bidding" || phase === "reveal") && (
+              <CountdownRing total={countdownTotal || 300} remaining={countdownRemaining} />
+            )}
+          </div>
+
+          {/* Agent chat messages */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+            {messages.map((msg, i) => <AgentBubble key={i} msg={msg} />)}
+          </div>
+
+          {/* Strategy input (bidding phase only) */}
+          {phase === "bidding" && (
+            <div style={{
+              padding: "16px", borderRadius: 16, border: "1px solid var(--line)", background: "rgba(16, 20, 36, 0.6)", marginBottom: 12,
+            }}>
+              <label style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600, display: "block", marginBottom: 6 }}>
+                What is this item worth to you? (STRK)
+              </label>
+              <input
+                placeholder="Your true value, e.g. 10"
+                value={trueValue}
+                onChange={(e) => setTrueValue(e.target.value)}
+                style={{ width: "100%", padding: "10px 14px", borderRadius: 12, border: "1px solid var(--line)", fontSize: 14 }}
+              />
+
+              {strategy && (
+                <div style={{
+                  marginTop: 14, padding: "14px 16px", borderRadius: 14,
+                  background: "rgba(0, 230, 118, 0.06)", border: "1px solid rgba(0, 230, 118, 0.2)",
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: 15 }}>
+                      Recommended: {formatAmount(strategy.recommendedBid)} STRK
+                    </span>
+                    <button onClick={copyBid} style={{
+                      background: copied ? "var(--green)" : "rgba(100, 120, 180, 0.1)", border: "none", borderRadius: 8,
+                      padding: "4px 10px", cursor: "pointer", fontSize: 11, fontWeight: 600,
+                      color: copied ? "#080b14" : "var(--ink-dim)", display: "inline-flex", alignItems: "center", gap: 4,
+                      transition: "all 200ms",
+                    }}>
+                      {copied ? "✓ Copied" : "Copy bid"}
+                    </button>
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4,
+                      background: strategy.confidence === "high" ? "var(--green)" : strategy.confidence === "medium" ? "#ffab00" : "var(--muted)",
+                      color: "#080b14", textTransform: "uppercase", letterSpacing: 0.5,
+                    }}>
+                      {strategy.confidence} confidence
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+                    {strategy.reasoning.map((r, i) => (
+                      <div key={i} style={{
+                        marginBottom: 4,
+                        color: i === strategy.reasoning.length - 1 ? "var(--ink)" : "var(--muted)",
+                        fontWeight: i === strategy.reasoning.length - 1 ? 600 : 400,
+                      }}>
+                        {r}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Stats grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, fontSize: 12 }}>
+            <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--inset)", textAlign: "center" }}>
+              <div style={{ color: "var(--muted)", marginBottom: 2, fontSize: 11 }}>Bids</div>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>{selected.bidCount}</div>
+            </div>
+            <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--inset)", textAlign: "center" }}>
+              <div style={{ color: "var(--muted)", marginBottom: 2, fontSize: 11 }}>Min Bid</div>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>{formatAmount(selected.minBid)}</div>
+            </div>
+            <div style={{ padding: "10px 12px", borderRadius: 12, background: "var(--inset)", textAlign: "center" }}>
+              <div style={{ color: "var(--muted)", marginBottom: 2, fontSize: 11 }}>Format</div>
+              <div style={{ fontWeight: 700, fontSize: 16 }}>{selected.auctionType === "vickrey" ? "Vickrey" : "1st Price"}</div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Main Auction Panel ───────────────────────────────────────────────────
+
 export default function AuctionPanel() {
   const myFrontendProviderIndex = useFrontendProvider((s) => s.currentFrontendProviderIndex);
   const myWalletAccount = useStoreWallet((s) => s.myWalletAccount);
@@ -85,7 +389,9 @@ export default function AuctionPanel() {
 
   // Auction contract address (set after deployment).
   const [contractAddr, setContractAddr] = useState<string>(
-    process.env.NEXT_PUBLIC_SHADE_ADDR ?? "0x0"
+    process.env.NEXT_PUBLIC_SHADE_ADDR && process.env.NEXT_PUBLIC_SHADE_ADDR !== "0x0"
+      ? process.env.NEXT_PUBLIC_SHADE_ADDR
+      : constants.ShadeMainnetAddress
   );
 
   // Provider for read calls.
@@ -487,7 +793,7 @@ export default function AuctionPanel() {
                   fontSize: 11,
                   padding: "3px 8px",
                   borderRadius: 999,
-                  background: a.settled ? "var(--green-soft)" : a.cancelled ? "#fdeceb" : "var(--pink-soft)",
+                  background: a.settled ? "rgba(0, 230, 118, 0.08)" : a.cancelled ? "rgba(255, 61, 113, 0.08)" : "rgba(0, 255, 200, 0.06)",
                   color: a.settled ? "var(--green)" : a.cancelled ? "var(--danger)" : "var(--pink-text)",
                   fontWeight: 600,
                 }}>
@@ -629,14 +935,25 @@ export default function AuctionPanel() {
         </div>
       )}
 
+      {/* ── STRATEGIST ── */}
+      {tab === "strategist" && (
+        <StrategistTab
+          provider={provider}
+          contractAddr={contractAddr}
+          isStrk20Network={isStrk20Network}
+          auctions={auctions}
+          onRefresh={fetchAuctions}
+        />
+      )}
+
       {/* Status / Error alerts */}
       {status && (
         <div style={{
           marginTop: 12,
           padding: "14px 18px",
           borderRadius: 16,
-          background: "var(--green-soft)",
-          border: "1px solid #cdeede",
+          background: "rgba(0, 230, 118, 0.06)",
+          border: "1px solid rgba(0, 230, 118, 0.2)",
           fontSize: 13,
           wordBreak: "break-all",
           display: "flex",
@@ -652,10 +969,10 @@ export default function AuctionPanel() {
           marginTop: 12,
           padding: "14px 18px",
           borderRadius: 16,
-          background: "#fdeceb",
-          border: "1px solid #f4cccb",
+          background: "rgba(255, 61, 113, 0.08)",
+          border: "1px solid rgba(255, 61, 113, 0.3)",
           fontSize: 13,
-          color: "#b91c1c",
+          color: "#ff6b8a",
           wordBreak: "break-word",
           display: "flex",
           alignItems: "flex-start",
