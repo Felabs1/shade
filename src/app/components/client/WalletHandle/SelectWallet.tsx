@@ -2,7 +2,7 @@
 import styles from "../../../uni.module.css";
 import { useStoreWallet } from "../../Wallet/walletContext";
 import { useFrontendProvider } from "../provider/providerContext";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { walletV6, validateAndParseAddress, constants as SNconstants, WalletAccountV6 } from "starknet";
 import { WALLET_API } from "@starknet-io/types-js";
 import { myFrontendProviders } from "@/utils/constants";
@@ -42,13 +42,26 @@ export default function SelectWallet({ variant = "ctaBig" }: { variant?: "nav" |
   // Detected Starknet wallets, in render state so the picker updates as wallets register.
   const [wallets, setWallets] = useState<WalletWithStarknetFeatures[]>([]);
 
+  const storeRef = useRef<Store | null>(null);
+
   // Create the discovery store once on mount so wallets have time to register
   // before the user opens the picker. eip1193Adapters:[] keeps MetaMask out entirely
   // (no EIP-6963 MetaMask bridging / Snap probing).
   useEffect(() => {
     const store: Store = createStore({ eip1193Adapters: [] });
+    storeRef.current = store;
     setWallets(store.getWallets().slice() as any);
     const unsub = store.subscribe((next) => setWallets(next.slice() as any));
+
+    // Poll a few times after mount because extensions (Xverse, Ready, Argent) inject asynchronously.
+    const intervals = [300, 800, 1500, 3000].map((delay) =>
+      setTimeout(() => {
+        try {
+          store._refreshInjectedWallets();
+          setWallets(store.getWallets().slice() as any);
+        } catch {}
+      }, delay)
+    );
 
     // Auto-reconnect: if a wallet was previously connected, try to restore
     // the session on page load. This avoids re-clicking Connect after every reload.
@@ -68,7 +81,10 @@ export default function SelectWallet({ variant = "ctaBig" }: { variant?: "nav" |
       }, 1500); // Wait 1.5s for wallets to register
     }
 
-    return () => unsub();
+    return () => {
+      intervals.forEach(clearTimeout);
+      unsub();
+    };
   }, []);
 
   // Show every detected wallet except MetaMask (its Snap probing spams an unlock popup).
@@ -143,6 +159,12 @@ export default function SelectWallet({ variant = "ctaBig" }: { variant?: "nav" |
   // Open the wallet picker so the user can choose (Ready, Xverse, ...).
   const openPicker = () => {
     setError("");
+    if (storeRef.current) {
+      try {
+        storeRef.current._refreshInjectedWallets();
+        setWallets(storeRef.current.getWallets().slice() as any);
+      } catch {}
+    }
     setPickerOpen(true);
   };
 

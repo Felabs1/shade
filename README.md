@@ -1,5 +1,8 @@
 # Shade — Sealed-Bid Auctions on Starknet
 
+> **Live Demo:** [shade-peach.vercel.app](https://shade-peach.vercel.app)  
+> **Demo Video:** [YouTube Video (3 mins)](https://youtu.be/69Qr1gh1VXw)
+
 Private sealed-bid auctions built on Starknet using the [STRK20](https://strk20.starknet.io/) privacy pool. Bids are hidden via Poseidon commitments until the reveal phase. Supports first-price and Vickrey (second-price) auction formats.
 
 ## Why Sealed-Bid Auctions?
