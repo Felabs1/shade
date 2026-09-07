@@ -12,23 +12,22 @@ export const ShadeMainnetClassHash = "0x6411b4f770447f5d699a97e0d34fcb2d52ab2c36
 
 // Frontend RPC providers, indexed. The STRK20 privacy pool lives on Mainnet (0)
 // and Sepolia (2). NEXT_PUBLIC_PROVIDER_URL can be just the Alchemy key OR a
-// full RPC URL. Falls back to free public Blast endpoints if not set.
-const rawKey = process.env.NEXT_PUBLIC_PROVIDER_URL;
-const isFullUrl = rawKey && rawKey.startsWith("http");
-const isPlaceholder = !rawKey || rawKey === "your_alchemy_key_here";
+// full RPC URL. Defaults to Alchemy RPC key with full browser CORS support.
+const DEFAULT_ALCHEMY_KEY = "EzO62qQ-wC9-OQyeOyL1y";
+const rawKey = process.env.NEXT_PUBLIC_PROVIDER_URL || DEFAULT_ALCHEMY_KEY;
+const isFullUrl = rawKey.startsWith("http");
 
-const mainnetUrl = isPlaceholder
-  ? "https://starknet-mainnet.public.blastapi.io/rpc/v0_7"
-  : isFullUrl
-    ? rawKey.replace("sepolia", "mainnet")
-    : "https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_10/" + rawKey;
-const sepoliaUrl = isPlaceholder
-  ? "https://starknet-sepolia.public.blastapi.io/rpc/v0_7"
-  : rawKey;
+const mainnetUrl = isFullUrl
+  ? (rawKey.includes("sepolia") ? rawKey.replace("sepolia", "mainnet") : rawKey)
+  : "https://starknet-mainnet.g.alchemy.com/starknet/version/rpc/v0_10/" + rawKey;
+
+const sepoliaUrl = isFullUrl
+  ? (rawKey.includes("mainnet") ? rawKey.replace("mainnet", "sepolia") : rawKey)
+  : "https://starknet-sepolia.g.alchemy.com/starknet/version/rpc/v0_10/" + rawKey;
 
 export const myFrontendProviders: ProviderInterface[] = [
     new RpcProvider({ nodeUrl: mainnetUrl }),
-    new RpcProvider({ nodeUrl: "https://starknet-testnet.public.blastapi.io/rpc/v0_7" }),
+    new RpcProvider({ nodeUrl: "https://free-rpc.nethermind.io/mainnet-juno" }),
     new RpcProvider({ nodeUrl: sepoliaUrl })];
 
 // ─── Example anonymizer (echo helper) ───────────────────────────────────────
